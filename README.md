@@ -1,7 +1,7 @@
 # MBNDT: Multi-Branch Neural Decision Tree
 
 Implementation and experiment artifacts for MBNDT from the paper **Adaptive
-Multi-Branching for Shallow Decision Tree Induction** (ICDM 2026).
+Multi-Branching for Shallow Decision Tree Induction** (IEEE ICDM 2026).
 
 MBNDT is a shallow, axis-aligned decision tree trained end-to-end with
 differentiable multi-way splits. Each node learns ordered thresholds and an
