@@ -1,0 +1,22 @@
+# OpenML IDs used in the 21-dataset ICDM 2026 benchmark
+openml:55
+openml:27
+openml:56
+openml:15
+openml:1464
+openml:37
+openml:45557
+openml:31
+openml:1494
+openml:1462
+openml:1504
+openml:3
+openml:44
+openml:1489
+openml:24
+openml:1120
+openml:1461
+openml:151
+openml:1590
+openml:1597
+openml:162
