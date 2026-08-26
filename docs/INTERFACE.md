@@ -17,6 +17,7 @@ classifier = MBNDTClassifier(
     use_masks=True,
     epochs=100,
     patience=20,
+    n_restarts=0,
     leaf_budget=8,
     random_state=0,
 )
@@ -32,6 +33,77 @@ For binary classification, `predict_proba` returns two columns ordered by
 `classifier.classes_`. For multiclass classification it applies softmax and
 returns one column per class. `predict` maps indices back to the labels
 originally supplied to `fit`.
+
+## Performance controls and defaults
+
+The convenience constructor is intentionally lightweight. Its defaults use one
+direct fit (`n_restarts=0`), a shared learning-rate fallback of `0.01`, 100
+maximum epochs, and no leaf-budget penalty. Random restarts are therefore
+available but are not silently enabled.
+
+The main performance controls are exposed directly:
+
+```python
+classifier = MBNDTClassifier(
+    lr_feature=0.01,
+    lr_thresh=0.01,
+    lr_leaf=0.02,
+    lr_mask=0.01,
+    n_restarts=5,
+    restart_epochs=40,
+    restart_patience=8,
+    stage1_es_metric="val_loss",
+    stage1_select_metric="val_loss",
+    stage2_es_metric="val_bacc",
+    epochs=500,
+    patience=25,
+    loss_type="balanced_bce",
+    leaf_budget=36,
+    batch_size="auto",
+)
+```
+
+When a component learning rate is omitted, `learning_rate` supplies its value.
+Setting `n_restarts=0` uses the direct training path; a positive value enables
+the paper's two-stage restart-selection path with that many candidates.
+`batch_size="auto"` reproduces the paper's deterministic rule based on the
+training-set size.
+
+## Paper-derived no-HPO preset
+
+```python
+classifier = MBNDTClassifier.paper_recommended(
+    random_state=0,
+    device="cuda",
+)
+```
+
+This preset was summarized from the 105 selected hyperparameter sets (21
+datasets × 5 outer splits) used in the main benchmark:
+
+| Parameter | Preset value | Summary rule |
+|---|---:|---|
+| Branching factor, depth, budget | `B=3, D=4, K=36` | Most frequent valid joint tuple |
+| `tau_cdf` | `0.30716` | Geometric mean |
+| Feature learning rate | `0.010145` | Geometric mean |
+| Threshold learning rate | `0.009401` | Geometric mean |
+| Leaf learning rate | `0.020192` | Geometric mean |
+| Mask learning rate | `0.011648` | Geometric mean |
+| Loss | `balanced_bce` | Selected in all 105 runs |
+| Restarts | `5` | Final paper training policy |
+| Restart stage | `40` epochs, patience `8` | Final paper policy |
+| Continuation stage | `500` epochs, patience `25` | Final paper policy |
+| Batch size | `"auto"` | Paper's dataset-size rule |
+
+The continuous HPO parameters were sampled logarithmically, so geometric means
+are more appropriate than arithmetic means. Architecture and leaf budget were
+tuned jointly; averaging them independently could create an unrepresentative
+or invalid combination.
+
+The preset is deliberately opt-in because it is substantially more expensive
+than the lightweight defaults. It is a reasonable fixed starting point when
+HPO is unavailable, but it does not reproduce the paper's dataset- and
+split-specific HPO selections.
 
 ## MBNDT-PP
 

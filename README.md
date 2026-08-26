@@ -59,6 +59,30 @@ probabilities = classifier.predict_proba(X[128:])
 predictions = classifier.predict(X[128:])
 ```
 
+The lightweight constructor uses a single fit (`n_restarts=0`). To enable the
+paper's restart-selection procedure directly, set `n_restarts` and its stage
+controls:
+
+```python
+classifier = MBNDTClassifier(
+    n_restarts=5,
+    restart_epochs=40,
+    restart_patience=8,
+    stage1_select_metric="val_loss",
+    stage2_es_metric="val_bacc",
+)
+```
+
+For a compute-intensive no-HPO configuration summarized from the 105 selected
+hyperparameter sets in the paper's 21-dataset benchmark:
+
+```python
+classifier = MBNDTClassifier.paper_recommended()
+```
+
+This preset is a cross-dataset heuristic, not a substitute for the paper's
+per-split HPO.
+
 Run the complete example with:
 
 ```bash

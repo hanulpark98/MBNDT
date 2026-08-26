@@ -46,12 +46,22 @@ class MBNDTClassifier:
         use_masks: bool = True,
         tau_cdf: float = 0.6,
         learning_rate: float = 1e-2,
+        lr_feature: float | None = None,
+        lr_thresh: float | None = None,
+        lr_leaf: float | None = None,
+        lr_mask: float | None = None,
         epochs: int = 100,
         patience: int = 20,
+        n_restarts: int = 0,
+        restart_epochs: int = 40,
+        restart_patience: int = 8,
+        stage1_es_metric: str = "val_loss",
+        stage1_select_metric: str = "val_loss",
+        stage2_es_metric: str = "val_loss",
         loss_type: str = "bce",
         leaf_budget: float | None = None,
         load_balance_weight: float | None = None,
-        batch_size: int = 256,
+        batch_size: int | str = 256,
         random_state: int = 0,
         device: str | torch.device | None = None,
     ) -> None:
@@ -65,24 +75,56 @@ class MBNDTClassifier:
             raise ValueError(f"epochs must be at least 1, got {epochs}")
         if patience < 1:
             raise ValueError(f"patience must be at least 1, got {patience}")
-        if batch_size < 1:
-            raise ValueError(f"batch_size must be at least 1, got {batch_size}")
+        if n_restarts < 0:
+            raise ValueError(f"n_restarts cannot be negative, got {n_restarts}")
+        if restart_epochs < 1:
+            raise ValueError(
+                f"restart_epochs must be at least 1, got {restart_epochs}"
+            )
+        if restart_patience < 1:
+            raise ValueError(
+                f"restart_patience must be at least 1, got {restart_patience}"
+            )
+        if batch_size != "auto" and (
+            not isinstance(batch_size, int) or batch_size < 1
+        ):
+            raise ValueError("batch_size must be a positive integer or 'auto'")
         if leaf_budget is not None and leaf_budget <= 0:
             raise ValueError(f"leaf_budget must be positive, got {leaf_budget}")
+        learning_rates = {
+            "learning_rate": learning_rate,
+            "lr_feature": lr_feature,
+            "lr_thresh": lr_thresh,
+            "lr_leaf": lr_leaf,
+            "lr_mask": lr_mask,
+        }
+        for name, value in learning_rates.items():
+            if value is not None and value <= 0:
+                raise ValueError(f"{name} must be positive, got {value}")
 
         self.depth = int(depth)
         self.branching_factor = int(branching_factor)
         self.use_masks = bool(use_masks)
         self.tau_cdf = float(tau_cdf)
         self.learning_rate = float(learning_rate)
+        self.lr_feature = None if lr_feature is None else float(lr_feature)
+        self.lr_thresh = None if lr_thresh is None else float(lr_thresh)
+        self.lr_leaf = None if lr_leaf is None else float(lr_leaf)
+        self.lr_mask = None if lr_mask is None else float(lr_mask)
         self.epochs = int(epochs)
         self.patience = int(patience)
+        self.n_restarts = int(n_restarts)
+        self.restart_epochs = int(restart_epochs)
+        self.restart_patience = int(restart_patience)
+        self.stage1_es_metric = str(stage1_es_metric)
+        self.stage1_select_metric = str(stage1_select_metric)
+        self.stage2_es_metric = str(stage2_es_metric)
         self.loss_type = str(loss_type)
         self.leaf_budget = None if leaf_budget is None else float(leaf_budget)
         self.load_balance_weight = (
             None if load_balance_weight is None else float(load_balance_weight)
         )
-        self.batch_size = int(batch_size)
+        self.batch_size = batch_size if batch_size == "auto" else int(batch_size)
         self.random_state = int(random_state)
         self.device = device
         self._config_template: MBNDTConfig | None = None
@@ -92,7 +134,7 @@ class MBNDTClassifier:
         cls,
         config: MBNDTConfig,
         *,
-        batch_size: int = 256,
+        batch_size: int | str = 256,
         random_state: int | None = None,
         device: str | torch.device | None = None,
     ) -> MBNDTClassifier:
@@ -110,8 +152,22 @@ class MBNDTClassifier:
             use_masks=config.model.use_masks,
             tau_cdf=config.model.tau_cdf,
             learning_rate=config.optim.lr_feature,
+            lr_feature=config.optim.lr_feature,
+            lr_thresh=config.optim.lr_thresh,
+            lr_leaf=config.optim.lr_leaf,
+            lr_mask=config.optim.lr_mask,
             epochs=config.training.stage2_epoch,
             patience=config.training.stage2_patience,
+            n_restarts=(
+                config.training.n_restarts
+                if config.training.random_restart
+                else 0
+            ),
+            restart_epochs=config.training.stage1_epoch,
+            restart_patience=config.training.stage1_patience,
+            stage1_es_metric=config.training.stage1_es_metric,
+            stage1_select_metric=config.training.stage1_select_metric,
+            stage2_es_metric=config.training.stage2_es_metric,
             loss_type=config.training.loss_type,
             leaf_budget=(
                 config.regularizers.leaf_budget.K
@@ -129,6 +185,45 @@ class MBNDTClassifier:
         )
         estimator._config_template = deepcopy(config)
         return estimator
+
+    @classmethod
+    def paper_recommended(
+        cls,
+        *,
+        random_state: int = 0,
+        device: str | torch.device | None = None,
+    ) -> MBNDTClassifier:
+        """Return a no-HPO heuristic derived from the 21 paper benchmarks.
+
+        The architecture is the most frequent valid joint (B, D, K) selection.
+        Continuous values are geometric means because they were tuned on
+        logarithmic scales. This preset is compute-intensive and does not
+        reproduce dataset-specific HPO.
+        """
+        return cls(
+            depth=4,
+            branching_factor=3,
+            use_masks=True,
+            tau_cdf=0.30716084927607634,
+            lr_feature=0.010144880280579804,
+            lr_thresh=0.009400699138466554,
+            lr_leaf=0.02019192330525011,
+            lr_mask=0.011647779734774091,
+            epochs=500,
+            patience=25,
+            n_restarts=5,
+            restart_epochs=40,
+            restart_patience=8,
+            stage1_es_metric="val_loss",
+            stage1_select_metric="val_loss",
+            stage2_es_metric="val_bacc",
+            loss_type="balanced_bce",
+            leaf_budget=36,
+            load_balance_weight=None,
+            batch_size="auto",
+            random_state=random_state,
+            device=device,
+        )
 
     def fit(
         self,
@@ -201,7 +296,7 @@ class MBNDTClassifier:
         features = self._checked_prediction_features(X)
         loader = DataLoader(
             TensorDataset(features),
-            batch_size=min(self.batch_size, max(1, len(features))),
+            batch_size=self._resolved_batch_size(len(features)),
             shuffle=False,
         )
         outputs: list[torch.Tensor] = []
@@ -302,7 +397,7 @@ class MBNDTClassifier:
         config = _config_from_dict(payload["config"])
         estimator = cls.from_config(
             config,
-            batch_size=int(payload["batch_size"]),
+            batch_size=payload["batch_size"],
             random_state=int(payload["random_state"]),
             device=device,
         )
@@ -329,6 +424,12 @@ class MBNDTClassifier:
 
         load_balance_on = self.load_balance_weight is not None
         leaf_budget_on = self.leaf_budget is not None
+        lr_feature = (
+            self.learning_rate if self.lr_feature is None else self.lr_feature
+        )
+        lr_thresh = self.learning_rate if self.lr_thresh is None else self.lr_thresh
+        lr_leaf = self.learning_rate if self.lr_leaf is None else self.lr_leaf
+        lr_mask = self.learning_rate if self.lr_mask is None else self.lr_mask
         return MBNDTConfig(
             model=ModelHP(
                 n_features=int(n_features),
@@ -339,17 +440,22 @@ class MBNDTClassifier:
                 tau_cdf=self.tau_cdf,
             ),
             optim=OptimHP(
-                lr_feature=self.learning_rate,
-                lr_thresh=self.learning_rate,
-                lr_leaf=self.learning_rate,
-                lr_mask=self.learning_rate,
+                lr_feature=lr_feature,
+                lr_thresh=lr_thresh,
+                lr_leaf=lr_leaf,
+                lr_mask=lr_mask,
             ),
             training=TrainingHP(
-                random_restart=False,
+                random_restart=(self.n_restarts > 0),
+                n_restarts=max(1, self.n_restarts),
                 base_seed=self.random_state,
+                stage1_es_metric=self.stage1_es_metric,
+                stage1_select_metric=self.stage1_select_metric,
+                stage2_es_metric=self.stage2_es_metric,
+                stage1_epoch=self.restart_epochs,
+                stage1_patience=self.restart_patience,
                 stage2_epoch=self.epochs,
                 stage2_patience=self.patience,
-                stage2_es_metric="val_loss",
                 loss_type=self.loss_type,
                 verbose=False,
             ),
@@ -380,12 +486,27 @@ class MBNDTClassifier:
         generator = torch.Generator().manual_seed(int(seed))
         return DataLoader(
             TensorDataset(features, labels),
-            batch_size=min(self.batch_size, max(1, len(features))),
+            batch_size=self._resolved_batch_size(len(features)),
             shuffle=shuffle,
             generator=(generator if shuffle else None),
             num_workers=0,
             pin_memory=False,
         )
+
+    def _resolved_batch_size(self, n_samples: int) -> int:
+        """Resolve the fixed or paper-style dataset-size-dependent batch."""
+        n_samples = int(n_samples)
+        if self.batch_size != "auto":
+            return min(int(self.batch_size), max(1, n_samples))
+        if n_samples < 10_000:
+            target = 256
+        elif n_samples < 100_000:
+            target = 512
+        else:
+            target = 1024
+        batch_size = min(target, max(16, n_samples // 12))
+        batch_size = max(16, min(4096, batch_size))
+        return min(batch_size, n_samples)
 
     @staticmethod
     def _as_features(X: Any, *, name: str) -> torch.Tensor:

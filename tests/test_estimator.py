@@ -120,9 +120,11 @@ def test_facade_is_exactly_equivalent_to_paper_training_path(tmp_path):
     assert probabilities.shape == (16, 2)
     np.testing.assert_allclose(probabilities.sum(axis=1), 1.0)
 
+    classifier.batch_size = "auto"
     checkpoint = tmp_path / "classifier.pt"
     classifier.save(checkpoint)
     restored = MBNDTClassifier.load(checkpoint, device="cpu")
+    assert restored.batch_size == "auto"
     np.testing.assert_array_equal(
         classifier.decision_function(val_x),
         restored.decision_function(val_x),
@@ -279,3 +281,62 @@ def test_interface_rejects_unfitted_and_invalid_inputs():
             np.zeros((4, 3), dtype=np.float32),
             [1, 1, 1, 1],
         )
+
+
+def test_performance_controls_map_to_research_configuration():
+    classifier = MBNDTClassifier(
+        lr_feature=0.011,
+        lr_thresh=0.012,
+        lr_leaf=0.021,
+        lr_mask=0.013,
+        n_restarts=3,
+        restart_epochs=25,
+        restart_patience=5,
+        stage1_es_metric="val_loss",
+        stage1_select_metric="val_loss",
+        stage2_es_metric="val_bacc",
+        epochs=300,
+        patience=25,
+    )
+    config = classifier._make_config(n_features=7, num_classes=1)
+
+    assert config.optim == OptimHP(
+        lr_feature=0.011,
+        lr_thresh=0.012,
+        lr_leaf=0.021,
+        lr_mask=0.013,
+    )
+    assert config.training.random_restart is True
+    assert config.training.n_restarts == 3
+    assert config.training.stage1_epoch == 25
+    assert config.training.stage1_patience == 5
+    assert config.training.stage1_es_metric == "val_loss"
+    assert config.training.stage1_select_metric == "val_loss"
+    assert config.training.stage2_es_metric == "val_bacc"
+    assert config.training.stage2_epoch == 300
+    assert config.training.stage2_patience == 25
+
+
+def test_paper_recommended_preset_uses_audited_21_dataset_summary():
+    classifier = MBNDTClassifier.paper_recommended(device="cpu")
+    config = classifier._make_config(n_features=10, num_classes=1)
+
+    assert (config.model.B, config.model.D) == (3, 4)
+    assert config.model.tau_cdf == pytest.approx(0.30716084927607634)
+    assert config.optim.lr_feature == pytest.approx(0.010144880280579804)
+    assert config.optim.lr_thresh == pytest.approx(0.009400699138466554)
+    assert config.optim.lr_leaf == pytest.approx(0.02019192330525011)
+    assert config.optim.lr_mask == pytest.approx(0.011647779734774091)
+    assert config.training.random_restart is True
+    assert config.training.n_restarts == 5
+    assert config.training.stage1_epoch == 40
+    assert config.training.stage2_epoch == 500
+    assert config.training.loss_type == "balanced_bce"
+    assert config.regularizers.leaf_budget.on is True
+    assert config.regularizers.leaf_budget.K == 36
+    assert classifier.batch_size == "auto"
+
+    assert classifier._resolved_batch_size(100) == 16
+    assert classifier._resolved_batch_size(1_000) == 83
+    assert classifier._resolved_batch_size(10_000) == 512
+    assert classifier._resolved_batch_size(100_000) == 1024
