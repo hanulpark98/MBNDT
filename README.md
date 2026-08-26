@@ -96,8 +96,7 @@ paper/           Citation and paper-posting notes
 
 ## Citation
 
-Citation metadata are provided in `CITATION.cff`. Add the DOI and final IEEE
-Xplore bibliographic fields after publication.
+Citation metadata will be provided after publication.
 
 ## License
 
