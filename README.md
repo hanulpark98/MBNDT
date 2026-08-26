@@ -34,64 +34,29 @@ the appropriate PyTorch build for the host before installing this project.
 
 ## Minimal example
 
-`MBNDT.forward` returns logits. The example below trains a small binary model
-through the same configuration-based training path used by the experiment
-runner, then converts its logits to probabilities and class predictions.
-
 ```python
 import torch
-from torch.utils.data import DataLoader, TensorDataset
-
-from mbndt import (
-    LeafBudgetHP,
-    LoadBalanceHP,
-    MBNDTConfig,
-    ModelHP,
-    OptimHP,
-    RegularizersHP,
-    TrainingHP,
-    train_from_cfg,
-)
-from mbndt import model as mbndt_module
+from mbndt import MBNDTClassifier
 
 torch.manual_seed(0)
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+X = torch.randn(160, 8)
+y = (X[:, 0] - 0.5 * X[:, 1] > 0).long()
 
-# Replace these tensors with preprocessed, numeric features and binary labels.
-x = torch.randn(160, 8)
-y = (x[:, 0] - 0.5 * x[:, 1] > 0).float()
-train_loader = DataLoader(
-    TensorDataset(x[:128], y[:128]), batch_size=32, shuffle=True
-)
-val_loader = DataLoader(
-    TensorDataset(x[128:], y[128:]), batch_size=32
-)
-
-config = MBNDTConfig(
-    model=ModelHP(n_features=8, D=3, B=3, use_masks=True),
-    optim=OptimHP(),
-    training=TrainingHP(
-        random_restart=False,
-        stage2_epoch=20,
-        stage2_patience=5,
-        stage2_es_metric="val_loss",
-        verbose=False,
-    ),
-    regularizers=RegularizersHP(
-        load_balance=LoadBalanceHP(on=False),
-        leaf_budget=LeafBudgetHP(on=False),
-    ),
+classifier = MBNDTClassifier(
+    depth=3,
+    branching_factor=3,
+    epochs=20,
+    patience=5,
+    random_state=0,
+).fit(
+    X[:128],
+    y[:128],
+    X_val=X[128:],
+    y_val=y[128:],
 )
 
-model, history = train_from_cfg(
-    mbndt_module, config, train_loader, val_loader, device
-)
-
-model.eval()
-with torch.no_grad():
-    logits = model(x[128:].to(device))
-    probabilities = torch.sigmoid(logits)
-    predictions = (probabilities >= 0.5).long()
+probabilities = classifier.predict_proba(X[128:])
+predictions = classifier.predict(X[128:])
 ```
 
 Run the complete example with:
@@ -100,10 +65,21 @@ Run the complete example with:
 python examples/train_and_predict.py
 ```
 
-The paper experiments additionally enable random restarts and leaf-budget
-regularization, and use longer early-stopped training through these same
-configuration objects. Their complete settings are in
-`experiments/run_mbndt_hpo.py`.
+The classifier accepts numeric, already-preprocessed arrays or tensors. See
+[the interface guide](docs/INTERFACE.md) for MBNDT-PP, save/load, multiclass,
+and full-configuration examples.
+
+## Paper-equivalent path
+
+`MBNDTClassifier` is a thin facade: it delegates model construction and
+training to the unchanged research implementation. Deterministic tests require
+its learned parameters, logits, and metrics to exactly match the low-level path
+for the same seed, configuration, batches, and data.
+
+The paper experiments additionally use random restarts, leaf-budget
+regularization, longer early-stopped training, nested evaluation, and HPO.
+Their authoritative entry point remains `experiments/run_mbndt_hpo.py`; the
+facade does not replace that reproduction runner.
 
 ## Reproducing experiments
 
@@ -144,6 +120,7 @@ notebook copies, and archived exploratory experiments.
 ```text
 src/mbndt/       Core model, training configuration, and preprocessing
 examples/        Small end-to-end training and inference example
+docs/            Clean-interface and paper-parity guidance
 experiments/     MBNDT and baseline HPO entry points
 configs/         Paper dataset manifest
 results/         Compact aggregate tables and derived figures

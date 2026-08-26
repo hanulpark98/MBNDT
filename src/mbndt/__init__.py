@@ -11,9 +11,11 @@ from .config import (
     train_from_cfg,
 )
 from .model import MBNDT
+from .estimator import MBNDTClassifier
 
 __all__ = [
     "MBNDT",
+    "MBNDTClassifier",
     "MBNDTConfig",
     "ModelHP",
     "OptimHP",

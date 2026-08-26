@@ -1,75 +1,53 @@
-"""Train MBNDT on a small synthetic binary-classification dataset."""
+"""Train and evaluate MBNDT through the user-facing classifier interface."""
 
 import torch
-from torch.utils.data import DataLoader, TensorDataset
 
-from mbndt import (
-    LeafBudgetHP,
-    LoadBalanceHP,
-    MBNDTConfig,
-    ModelHP,
-    OptimHP,
-    RegularizersHP,
-    TrainingHP,
-    train_from_cfg,
-)
-from mbndt import model as mbndt_module
+from mbndt import MBNDTClassifier
 
 
 def main() -> None:
     torch.manual_seed(0)
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
-    # Replace these tensors with preprocessed, numeric features and binary labels.
     features = torch.randn(160, 8)
-    labels = (features[:, 0] - 0.5 * features[:, 1] > 0).float()
+    labels = (features[:, 0] - 0.5 * features[:, 1] > 0).long()
 
-    train_loader = DataLoader(
-        TensorDataset(features[:128], labels[:128]),
-        batch_size=32,
-        shuffle=True,
-    )
+    train_features = features[:128]
+    train_labels = labels[:128]
     validation_features = features[128:]
     validation_labels = labels[128:]
-    validation_loader = DataLoader(
-        TensorDataset(validation_features, validation_labels),
+
+    classifier = MBNDTClassifier(
+        depth=3,
+        branching_factor=3,
+        use_masks=True,
+        epochs=20,
+        patience=5,
         batch_size=32,
+        random_state=0,
+    ).fit(
+        train_features,
+        train_labels,
+        X_val=validation_features,
+        y_val=validation_labels,
     )
 
-    config = MBNDTConfig(
-        model=ModelHP(n_features=features.shape[1], D=3, B=3, use_masks=True),
-        optim=OptimHP(),
-        training=TrainingHP(
-            random_restart=False,
-            stage2_epoch=20,
-            stage2_patience=5,
-            stage2_es_metric="val_loss",
-            verbose=False,
-        ),
-        regularizers=RegularizersHP(
-            load_balance=LoadBalanceHP(on=False),
-            leaf_budget=LeafBudgetHP(on=False),
-        ),
+    probabilities = classifier.predict_proba(validation_features)
+    predictions = classifier.predict(validation_features)
+    accuracy = classifier.score(validation_features, validation_labels)
+
+    print(f"epochs run: {len(classifier.history_.get('train_loss', []))}")
+    print(f"validation accuracy: {accuracy:.3f}")
+    print(f"first five probabilities: {probabilities[:5].tolist()}")
+    print(f"first five predictions: {predictions[:5].tolist()}")
+
+    # MBNDT-PP uses the combined train + early-stopping validation set in the
+    # paper. The raw model remains available through classifier.model_.
+    classifier.prune(torch.cat((train_features, validation_features)))
+    post_pruned_accuracy = classifier.score(
+        validation_features,
+        validation_labels,
+        post_pruned=True,
     )
-
-    model, history = train_from_cfg(
-        mbndt_module,
-        config,
-        train_loader,
-        validation_loader,
-        device,
-    )
-
-    model.eval()
-    with torch.no_grad():
-        logits = model(validation_features.to(device))
-        probabilities = torch.sigmoid(logits)
-        predictions = (probabilities >= 0.5).long().cpu()
-
-    accuracy = (predictions == validation_labels.long()).float().mean()
-    print(f"epochs run: {len(history.get('train_loss', []))}")
-    print(f"validation accuracy: {accuracy.item():.3f}")
-    print(f"first five probabilities: {probabilities[:5].cpu().tolist()}")
+    print(f"post-pruned validation accuracy: {post_pruned_accuracy:.3f}")
 
 
 if __name__ == "__main__":
