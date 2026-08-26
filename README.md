@@ -7,6 +7,8 @@ MBNDT is a shallow, axis-aligned decision tree trained end-to-end with
 differentiable multi-way splits. Each node learns ordered thresholds and an
 optional branch mask. Inference follows one deterministic root-to-leaf path.
 
+<img width="4273" height="1530" alt="figure1_v7" src="https://github.com/user-attachments/assets/41c93fd5-9483-4033-b3a7-64aec1cff7da" />
+
 ## Repository status
 
 This is a camera-ready release candidate. The core model, paper HPO scripts,
