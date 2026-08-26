@@ -1,6 +1,6 @@
-# MBNDT
+# MBNDT: Multi-Branch Neural Decision Tree
 
-Reference implementation and experiment artifacts for **Adaptive
+Implementation and experiment artifacts for MBNDT from the paper **Adaptive
 Multi-Branching for Shallow Decision Tree Induction** (ICDM 2026).
 
 MBNDT is a shallow, axis-aligned decision tree trained end-to-end with
