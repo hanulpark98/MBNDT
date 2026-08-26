@@ -11,10 +11,8 @@ optional branch mask. Inference follows one deterministic root-to-leaf path.
 
 ## Repository status
 
-This is a camera-ready release candidate. The core model, paper HPO scripts,
-21-dataset manifest, compact aggregate results, and a smoke test are present.
-Before public release, the authors should record the exact upstream revisions
-used for GradTree and SPLIT.
+This is a basic camera-ready release version. The core model, paper HPO scripts,
+21-dataset manifest, compact aggregate results, and a smoke test are present. We are planned to update the final release as soon as possible.
 
 ## Installation
 
