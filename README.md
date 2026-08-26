@@ -34,19 +34,76 @@ the appropriate PyTorch build for the host before installing this project.
 
 ## Minimal example
 
+`MBNDT.forward` returns logits. The example below trains a small binary model
+through the same configuration-based training path used by the experiment
+runner, then converts its logits to probabilities and class predictions.
+
 ```python
 import torch
-from mbndt import MBNDT
+from torch.utils.data import DataLoader, TensorDataset
 
-model = MBNDT(n_features=8, D=3, B=3, use_masks=True)
-x = torch.randn(32, 8)
-logits = model(x)
-probabilities = torch.sigmoid(logits)
+from mbndt import (
+    LeafBudgetHP,
+    LoadBalanceHP,
+    MBNDTConfig,
+    ModelHP,
+    OptimHP,
+    RegularizersHP,
+    TrainingHP,
+    train_from_cfg,
+)
+from mbndt import model as mbndt_module
+
+torch.manual_seed(0)
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+# Replace these tensors with preprocessed, numeric features and binary labels.
+x = torch.randn(160, 8)
+y = (x[:, 0] - 0.5 * x[:, 1] > 0).float()
+train_loader = DataLoader(
+    TensorDataset(x[:128], y[:128]), batch_size=32, shuffle=True
+)
+val_loader = DataLoader(
+    TensorDataset(x[128:], y[128:]), batch_size=32
+)
+
+config = MBNDTConfig(
+    model=ModelHP(n_features=8, D=3, B=3, use_masks=True),
+    optim=OptimHP(),
+    training=TrainingHP(
+        random_restart=False,
+        stage2_epoch=20,
+        stage2_patience=5,
+        stage2_es_metric="val_loss",
+        verbose=False,
+    ),
+    regularizers=RegularizersHP(
+        load_balance=LoadBalanceHP(on=False),
+        leaf_budget=LeafBudgetHP(on=False),
+    ),
+)
+
+model, history = train_from_cfg(
+    mbndt_module, config, train_loader, val_loader, device
+)
+
+model.eval()
+with torch.no_grad():
+    logits = model(x[128:].to(device))
+    probabilities = torch.sigmoid(logits)
+    predictions = (probabilities >= 0.5).long()
 ```
 
-The low-level class exposes the exact research architecture. For the complete
-training policy, including random restarts, early stopping, and leaf-budget
-regularization, use the configuration objects and paper experiment runner.
+Run the complete example with:
+
+```bash
+python examples/train_and_predict.py
+```
+
+The paper experiments additionally enable random restarts and leaf-budget
+regularization, and use longer early-stopped training through these same
+configuration objects. Their complete settings are in
+`experiments/run_mbndt_hpo.py`.
 
 ## Reproducing experiments
 
@@ -86,6 +143,7 @@ notebook copies, and archived exploratory experiments.
 
 ```text
 src/mbndt/       Core model, training configuration, and preprocessing
+examples/        Small end-to-end training and inference example
 experiments/     MBNDT and baseline HPO entry points
 configs/         Paper dataset manifest
 results/         Compact aggregate tables and derived figures
